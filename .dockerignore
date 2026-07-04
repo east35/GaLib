@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+downloads/
+config/
+.claude
+*.command
+*.bat
+galib-logo.png
+pick_folder.py
+PLAN-*.md

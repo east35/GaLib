@@ -1,0 +1,3 @@
+[submodule "finder"]
+	path = finder
+	url = https://github.com/east35/GaLib-Finder.git

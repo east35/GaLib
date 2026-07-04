@@ -1,0 +1,36 @@
+# Homelab deployment (this box) — overrides the repo's NAS-targeted docker-compose.yml.
+# Use:  docker compose -f compose.box.yml up -d --build   (or ./update.sh)
+# Ingress: cloudflared *.razerblade.dev -> traefik:80 -> this container:8765.
+# Library lives on the NAS via NFS mount; new chapters write back there so the
+# library stays unified with Jellyfin/etc. See ../../.. memory reverse-proxy-pattern.
+services:
+  galib:
+    build: .
+    container_name: galib
+    restart: unless-stopped
+    # Fedora SELinux is Enforcing; NFS bind mounts can't carry container labels.
+    security_opt:
+      - label:disable
+    volumes:
+      - /home/Admin/srv/mounts/nas-media/manga:/data/downloads
+      - ./config:/data/config
+    environment:
+      MANGA_DL_NO_BROWSER: "1"
+      MANGA_DL_FOLDER: /data/downloads
+      MANGA_DL_CONFIG_DIR: /data/config
+      MANGA_DL_CONTAINER: "1"
+      MANGA_DL_PASSWORD: ${MANGA_DL_PASSWORD:-}
+      MANGA_DL_USERNAME: ${MANGA_DL_USERNAME:-}
+      MANGA_DL_COOKIE_SECURE: ${MANGA_DL_COOKIE_SECURE:-1}
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.galib.entrypoints=web
+      - traefik.http.routers.galib.rule=Host(`galib.razerblade.dev`)
+      - traefik.http.services.galib.loadbalancer.server.port=8765
+
+networks:
+  proxy:
+    external: true

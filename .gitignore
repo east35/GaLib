@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime data (provided by Docker volumes / local state)
+config/
+downloads/
+
+# Secrets / local env
+.env
+
+# Editor / harness local settings
+.claude/
+
+# Synology / macOS metadata
+@eaDir/
+*@SynoEAStream
+.DS_Store
+Design.png

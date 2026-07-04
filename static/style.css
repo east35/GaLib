@@ -1,0 +1,729 @@
+/* GaLib — e-reader friendly theme: pure black & white, no shadows. */
+:root {
+  --bg: #ffffff;
+  --fg: #000000;
+  --bg-inv: #000000; /* opposite of --bg, for blocks that pop against the page */
+  --fg-inv: #ffffff;
+  --scrim: rgba(255, 255, 255, 0.92);
+  --radius: 0px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Dark palette: flips foreground/background; the rest of the sheet keys off
+   --bg/--fg so most components invert for free. */
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --fg: #ffffff;
+  --bg-inv: #ffffff;
+  --fg-inv: #000000;
+  --scrim: rgba(0, 0, 0, 0.92);
+}
+
+/* "System" mode = no data-theme attribute: follow the OS preference. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #000000;
+    --fg: #ffffff;
+    --bg-inv: #ffffff;
+    --fg-inv: #000000;
+    --scrim: rgba(0, 0, 0, 0.92);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+a { color: var(--fg); }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  border: 1px solid var(--fg);
+  padding: 0 4px;
+  word-break: break-all;
+}
+
+.hidden { display: none !important; }
+
+/* Lock the page behind the reader so it can't scroll underneath it. */
+body.reader-open { overflow: hidden; overscroll-behavior: none; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 2px solid var(--fg);
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.topbar-iconrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Hamburger shows only on narrow screens. The `.topbar` prefix lifts specificity
+   above `.btn` (which also sets display) so this isn't overridden by source order;
+   the media query below flips it to visible. */
+.topbar .nav-toggle { display: none; }
+
+/* Nav backdrop (mobile bottom sheet) */
+.nav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 39;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.nav-backdrop.open { display: block; opacity: 1; }
+
+@media (max-width: 600px) {
+  .topbar .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    height: 45.75px;
+  }
+  /* Bottom sheet: always in the flex flow, slid off-screen when closed. */
+  .topbar-actions {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 20px 24px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    background: var(--bg);
+    border-top: 2px solid var(--fg);
+    z-index: 40;
+    transform: translateY(calc(100% + 2px));
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    pointer-events: none;
+  }
+  .topbar-actions.open {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  .topbar-actions .ext,
+  .topbar-actions .btn { text-align: center; }
+  .topbar-actions .theme-toggle { width: 100%; }
+  .topbar-actions .theme-toggle button { flex: 1; }
+  /* Refresh + settings share one row in the sheet. */
+  .topbar-actions .topbar-iconrow { width: 100%; }
+  .topbar-actions .topbar-iconrow > * { flex: 1; }
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.brand .logo {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  line-height: 1;
+  color: var(--fg); /* reacts to light/dark */
+}
+.brand h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: 0.5px;
+}
+.tagline {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+.ext {
+  text-decoration: none;
+  padding: 10px 16px;
+  border: 2px solid var(--fg);
+  font-size: 15px;
+  white-space: nowrap;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--fg);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-family: inherit; /* match <a>.ext so heights line up */
+  font-size: 15px;
+  line-height: 1.45;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn.primary {
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 700;
+}
+.btn.ghost { background: var(--bg); }
+#app-settings { height: 45.75px; padding: 0 12px; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+#refresh-library.spinning svg { animation: spin 0.7s linear; }
+
+/* ---------- theme toggle ---------- */
+.theme-toggle {
+  display: inline-flex;
+  height: 45.75px;
+  border: 2px solid var(--fg);
+  border-radius: var(--radius);
+}
+.theme-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border: none;
+  border-right: 2px solid var(--fg);
+  padding: 0 10px;
+  cursor: pointer;
+}
+.theme-toggle button:last-child { border-right: none; }
+.theme-toggle button.active {
+  background: var(--fg);
+  color: var(--bg);
+}
+.theme-toggle svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+/* ---------- main / sections ---------- */
+main {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Each section is a full-width container, separated by borders. */
+.lib-section {
+  width: 100%;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--fg);
+  border-bottom: 2px solid var(--fg);
+}
+/* In Progress section gets an inverted background to highlight it. */
+#inprogress-section {
+  background: var(--bg-inv);
+  color: var(--fg-inv);
+}
+.lib-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.lib-head h2 { margin: 0; font-size: 20px; }
+
+.hint {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+input[type="url"], input[type="text"] {
+  background: var(--bg);
+  border: 2px solid var(--fg);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  color: var(--fg);
+  font-size: 15px;
+  outline: none;
+  width: 100%;
+}
+
+.log {
+  margin-top: 16px;
+  height: 260px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 2px solid var(--fg);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg);
+}
+
+/* ---------- library grid ---------- */
+.library {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 20px;
+}
+.lib-empty {
+  font-size: 14px;
+  padding: 8px 0;
+}
+.series-card {
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--fg);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+/* In Progress cards keep the page's own colours; border = fill so the card
+   edge is invisible against the inverted (light) section, and only the
+   progress strip is inverted. */
+#inprogress .series-card { border-color: var(--bg); }
+/* Library + Complete cards are inverted blocks with a framing border (the
+   inverted bg colour, e.g. white-on-black in dark mode). */
+#library .series-card,
+#finished .series-card {
+  background: var(--bg-inv);
+  color: var(--fg-inv);
+  border-color: var(--bg-inv);
+}
+.cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  background: var(--bg);
+  display: block;
+  border-bottom: 2px solid var(--fg);
+}
+.cover-placeholder {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bg);
+  font-size: 44px;
+  font-weight: 700;
+  border-bottom: 2px solid var(--fg);
+}
+/* Resume info as a full-width strip under the cover (no nested bordered box). */
+.resume-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--fg); /* inverted vs. the card it sits in */
+  color: var(--bg);
+}
+.resume-strip .resume-ch {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-strip .resume-pg { flex: 0 0 auto; }
+.series-meta {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.series-meta .title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.series-meta .sub {
+  font-size: 13px;
+}
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.card-actions .btn {
+  flex: 1;
+  padding: 10px 8px;
+  font-size: 14px;
+}
+
+/* ---------- modals ---------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+.modal-card {
+  background: var(--bg);
+  border: 2px solid var(--fg);
+  border-radius: var(--radius);
+  max-width: 560px;
+  width: 100%;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-head {
+  padding: 16px 18px;
+  border-bottom: 2px solid var(--fg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-head h3 { margin: 0; font-size: 18px; }
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-body {
+  padding: 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chapters-scroll {
+  overflow-y: auto;
+}
+.chapters-list {
+  padding: 0;
+}
+
+/* ---------- series detail header (chapter view) ---------- */
+.series-detail {
+  padding: 16px 18px;
+  border-bottom: 2px solid var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.series-detail:empty { display: none; }
+.sd-top { display: flex; gap: 14px; }
+.sd-cover {
+  width: 92px;
+  flex: 0 0 auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border: 2px solid var(--fg);
+}
+.sd-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sd-people { font-size: 13px; }
+.sd-people .label { font-weight: 700; }
+.sd-status {
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid var(--fg);
+  padding: 2px 8px;
+  align-self: flex-start;
+}
+.sd-genres { display: flex; flex-wrap: wrap; gap: 6px; }
+.sd-genre {
+  font-size: 11px;
+  border: 2px solid var(--fg);
+  padding: 1px 7px;
+}
+.sd-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.chap-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  cursor: pointer;
+  border-bottom: 2px solid var(--fg);
+}
+.chap-item:last-child { border-bottom: none; }
+.chap-item .chap-name { flex: 1; }
+.chap-item .pages { font-size: 12px; }
+.chap-item.read .chap-name { text-decoration: line-through; }
+.chap-item.current {
+  background: var(--fg);
+  color: var(--bg);
+}
+.chap-badge {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid currentColor;
+  padding: 1px 8px;
+}
+.chap-badge.faint { font-weight: 600; }
+
+.chap-read {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--fg);
+  background: var(--bg);
+  color: var(--bg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.chap-item.read .chap-read {
+  background: var(--fg);
+  color: var(--bg);
+}
+.chap-item.current .chap-read {
+  border-color: var(--bg);
+}
+.chap-item.current.read .chap-read {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* ---------- reader ---------- */
+.reader {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+/* Image area sits above the bar and is never overlapped by it. */
+.reader-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#reader-img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  cursor: pointer;
+}
+#reader-hit-left { left: 0; width: 33%; }
+#reader-hit-center { left: 33%; width: 34%; cursor: zoom-in; }
+#reader-hit-right { right: 0; width: 33%; }
+.reader.is-fullscreen #reader-hit-center { cursor: zoom-out; }
+
+/* Spread mode: a landscape (two-page) image is rotated 90° to fill a portrait
+   screen. JS sets the image's box size so it fits once rotated. */
+.reader-stage.spread-active #reader-img {
+  max-width: none;
+  max-height: none;
+  transform: rotate(90deg);
+}
+/* …and the tap zones run top→bottom: top = forward (was left), bottom = back. */
+.reader-stage.spread-active #reader-hit-left   { left: 0; right: 0; width: auto; top: 0; bottom: auto; height: 33%; }
+.reader-stage.spread-active #reader-hit-center { left: 0; right: 0; width: auto; top: 33%; bottom: auto; height: 34%; }
+.reader-stage.spread-active #reader-hit-right  { left: 0; right: 0; width: auto; top: auto; bottom: 0; height: 33%; }
+.reader-bar {
+  flex: 0 0 auto;
+  padding: 16px 18px;
+  min-height: 60px;
+  background: #000;
+  border-top: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: #fff;
+  font-size: 14px;
+}
+.reader.is-fullscreen .reader-bar { display: none; }
+
+/* Filled (inverted) buttons — solid on the reader's black bar. */
+.reader-bar .btn {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  font-weight: 700;
+}
+
+/* Icon toggle buttons (crop / spread): outlined when off, filled when on. */
+.reader-bar .reader-icon-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  border-color: #fff;
+}
+.reader-bar .reader-icon-btn svg { display: block; }
+.reader-bar .reader-icon-btn[aria-pressed="true"] {
+  background: #fff;
+  color: #000;
+}
+
+.reader-transition {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: #fff;
+  text-align: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 5;
+}
+.reader-transition.show { opacity: 1; }
+.reader-transition .rt-label {
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.reader-transition .rt-title {
+  font-size: 24px;
+  font-weight: 700;
+  max-width: 80%;
+}
+/* Chapter picker button in reader bar */
+.reader-bar .reader-chapter-btn {
+  flex: 1;
+  font-weight: 700;
+  gap: 6px;
+  justify-content: flex-start;
+  min-width: 0;
+  overflow: hidden;
+}
+.reader-bar .reader-chapter-btn #reader-chapter-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-bar .reader-chapter-btn svg { flex: 0 0 auto; }
+
+.reader-bar #reader-counter { font-family: var(--mono); flex: 0 0 auto; }
+
+/* Reader chapter picker overlay */
+.reader-chapter-picker {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.reader-chapter-picker.open {
+  pointer-events: auto;
+  opacity: 1;
+}
+.rcp-backdrop {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.7);
+}
+.rcp-sheet {
+  background: #111;
+  border-top: 2px solid #fff;
+  max-height: 55vh;
+  display: flex;
+  flex-direction: column;
+}
+.rcp-header {
+  padding: 12px 18px;
+  border-bottom: 2px solid #444;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #aaa;
+  flex: 0 0 auto;
+}
+.rcp-list {
+  overflow-y: auto;
+  flex: 1;
+}
+.rcp-item {
+  padding: 13px 18px;
+  font-size: 15px;
+  color: #fff;
+  cursor: pointer;
+  border-bottom: 1px solid #333;
+}
+.rcp-item:last-child { border-bottom: none; }
+.rcp-item:active { background: #222; }
+.rcp-item.current {
+  background: #fff;
+  color: #000;
+  font-weight: 700;
+}
+
+.reader.is-fullscreen .reader-chapter-picker { display: none; }

@@ -1,0 +1,20 @@
+services:
+  galib:
+    build: .
+    container_name: galib
+    ports:
+      - "8780:8765"
+    volumes:
+      - /volume1/data/media/manga:/data/downloads
+      - /volume1/docker/manga-dl/config:/data/config
+    environment:
+      MANGA_DL_NO_BROWSER: "1"
+      MANGA_DL_FOLDER: /data/downloads
+      MANGA_DL_CONFIG_DIR: /data/config
+      MANGA_DL_CONTAINER: "1"
+      # Auth (set in a local .env file — see .env.example). Login is enabled
+      # only when MANGA_DL_PASSWORD is non-empty.
+      MANGA_DL_PASSWORD: ${MANGA_DL_PASSWORD:-}
+      MANGA_DL_USERNAME: ${MANGA_DL_USERNAME:-}
+      MANGA_DL_COOKIE_SECURE: ${MANGA_DL_COOKIE_SECURE:-}
+    restart: unless-stopped
