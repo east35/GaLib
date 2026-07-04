@@ -624,6 +624,47 @@ input[type="url"], input[type="text"] {
   color: #000;
 }
 
+/* E-ink page-refresh flash: paint solid black, then solid white, holding each
+   long enough for the panel controller to run a full waveform refresh (which is
+   what actually clears ghosting). A fast fade won't trigger the global update. */
+.reader-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: #000;
+}
+.reader-flash.hidden { display: none !important; }
+.reader-flash.phase-black { background: #000; }
+.reader-flash.phase-white { background: #fff; }
+
+/* Page-refresh settings panel — floats just above the reader bar. Always
+   black/white like the bar (the reader is monochrome regardless of theme). */
+.reader-refresh-panel {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 76px;
+  z-index: 40;
+  background: #000;
+  color: #fff;
+  border: 2px solid #fff;
+  padding: 14px 16px;
+}
+.reader-refresh-panel.hidden { display: none !important; }
+.reader.is-fullscreen .reader-refresh-panel { display: none; }
+.reader-refresh-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.reader-refresh-value { min-width: 40px; text-align: right; font-family: var(--mono); }
+.reader-refresh-slider { display: block; width: 100%; margin: 14px 0 0; accent-color: #fff; }
+.reader-refresh-copy { margin-top: 10px; font-size: 13px; line-height: 1.35; opacity: 0.85; }
+
 .reader-transition {
   position: absolute;
   inset: 0;

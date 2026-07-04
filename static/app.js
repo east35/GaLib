@@ -41,6 +41,11 @@ const els = {
   readerClose: $("#reader-close"),
   readerCrop: $("#reader-crop"),
   readerSpread: $("#reader-spread"),
+  readerRefresh: $("#reader-refresh"),
+  readerRefreshPanel: $("#reader-refresh-panel"),
+  readerRefreshSlider: $("#reader-refresh-slider"),
+  readerRefreshValue: $("#reader-refresh-value"),
+  readerFlash: $("#reader-flash"),
   readerStage: $(".reader-stage"),
   hitLeft: $("#reader-hit-left"),
   hitCenter: $("#reader-hit-center"),
@@ -588,6 +593,7 @@ async function openReader(series, chapters, chapIdx, startPage = 0) {
     pages: res.pages,
     index: Math.min(Math.max(0, startPage), Math.max(0, res.pages - 1)),
   };
+  pageTurnsSinceRefresh = 0;
   updateReaderTitle();
   markReadThrough(series.name, chapter.file); // catch up earlier chapters
   els.reader.classList.remove("hidden");
@@ -608,6 +614,7 @@ function updateReaderTitle() {
 
 function openChapterPicker() {
   if (!reader) return;
+  closeRefreshPanel();
   const cur = reader.chapIdx;
   els.readerChapterList.innerHTML = "";
   reader.chapters.forEach((ch, i) => {
@@ -684,6 +691,76 @@ try { spreadEnabled = localStorage.getItem("manga-dl.spread") === "1"; } catch (
 
 function updateSpreadSwitch() {
   els.readerSpread.setAttribute("aria-pressed", spreadEnabled ? "true" : "false");
+}
+
+// E-ink page refresh: after N forward page turns, flash the screen solid
+// black→white to force a full waveform refresh and clear ghosting. 0 = off.
+// Opt-in, persisted. Counts only forward turns (like the read direction).
+let refreshEvery = 0;
+try { refreshEvery = clampRefresh(localStorage.getItem("manga-dl.refresh")); } catch (_) {}
+let pageTurnsSinceRefresh = 0;
+let refreshFlashTimer = null;
+
+function clampRefresh(v) {
+  return Math.max(0, Math.min(25, Math.round(Number(v) || 0)));
+}
+
+function formatRefreshEvery(v) {
+  return v > 0 ? `After ${v} ${v === 1 ? "page" : "pages"}` : "Off";
+}
+
+function updateRefreshButton() {
+  els.readerRefresh.setAttribute("aria-pressed", refreshEvery > 0 ? "true" : "false");
+  els.readerRefresh.title = refreshEvery > 0
+    ? `Page refresh: after ${refreshEvery} ${refreshEvery === 1 ? "page" : "pages"}`
+    : "Page refresh: off";
+}
+
+function updateRefreshPanelUI() {
+  els.readerRefreshSlider.value = String(refreshEvery);
+  els.readerRefreshValue.textContent = formatRefreshEvery(refreshEvery);
+}
+
+function closeRefreshPanel() {
+  els.readerRefreshPanel.classList.add("hidden");
+}
+
+function toggleRefreshPanel() {
+  if (els.readerRefreshPanel.classList.contains("hidden")) {
+    updateRefreshPanelUI();
+    els.readerRefreshPanel.classList.remove("hidden");
+  } else {
+    closeRefreshPanel();
+  }
+}
+
+// Count one forward page turn; flash when the threshold is reached.
+function noteForwardTurn() {
+  if (!refreshEvery) return;
+  pageTurnsSinceRefresh += 1;
+  if (pageTurnsSinceRefresh >= refreshEvery) {
+    pageTurnsSinceRefresh = 0;
+    triggerReaderRefreshFlash();
+  }
+}
+
+function triggerReaderRefreshFlash() {
+  const flash = els.readerFlash;
+  if (!flash) return;
+  clearTimeout(refreshFlashTimer);
+  // Paint solid black, hold, then solid white, hold — each long enough for the
+  // panel to settle. A fast fade doesn't trigger a global e-ink update.
+  flash.classList.remove("hidden", "phase-black", "phase-white");
+  void flash.offsetWidth; // restart the transition from a clean state
+  flash.classList.add("phase-black");
+  refreshFlashTimer = setTimeout(() => {
+    flash.classList.remove("phase-black");
+    flash.classList.add("phase-white");
+    refreshFlashTimer = setTimeout(() => {
+      flash.classList.remove("phase-white");
+      flash.classList.add("hidden");
+    }, 400);
+  }, 400);
 }
 
 // Rotate + size a page for spread mode, given the image's natural dimensions
@@ -769,16 +846,20 @@ function saveReaderProgress() {
 
 function nextPage() {
   if (!reader) return;
+  closeRefreshPanel();
   if (reader.index < reader.pages - 1) {
     reader.index++;
+    noteForwardTurn();
     showPage();
   } else if (reader.chapIdx + 1 < reader.chapters.length) {
+    noteForwardTurn();
     switchChapter(reader.chapIdx + 1, false);
   }
 }
 
 function prevPage() {
   if (!reader) return;
+  closeRefreshPanel();
   if (reader.index > 0) {
     reader.index--;
     showPage();
@@ -791,6 +872,11 @@ function prevPage() {
 function closeReaderUI() {
   if (els.reader.classList.contains("hidden")) return;
   closeChapterPicker();
+  closeRefreshPanel();
+  // Cancel any in-flight flash so it can't linger over the library.
+  clearTimeout(refreshFlashTimer);
+  els.readerFlash.classList.add("hidden");
+  els.readerFlash.classList.remove("phase-black", "phase-white");
   // Flush any pending progress write before tearing the reader down.
   if (progressSaveTimer) { clearTimeout(progressSaveTimer); progressSaveTimer = null; }
   if (reader) saveProgress(reader.series, reader.chapter, { page: reader.index, pages: reader.pages });
@@ -834,8 +920,17 @@ els.readerSpread.addEventListener("click", () => {
   updateSpreadSwitch();
   updateSpreadLayout();
 });
+els.readerRefresh.addEventListener("click", toggleRefreshPanel);
+els.readerRefreshSlider.addEventListener("input", () => {
+  refreshEvery = clampRefresh(els.readerRefreshSlider.value);
+  pageTurnsSinceRefresh = 0;
+  try { localStorage.setItem("manga-dl.refresh", String(refreshEvery)); } catch (_) {}
+  updateRefreshButton();
+  updateRefreshPanelUI();
+});
 updateCropSwitch();
 updateSpreadSwitch();
+updateRefreshButton();
 
 function toggleFullscreen() {
   if (document.fullscreenElement) {

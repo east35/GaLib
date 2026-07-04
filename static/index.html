@@ -187,7 +187,24 @@
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
         </svg>
       </button>
+      <button class="btn ghost reader-icon-btn" id="reader-refresh" aria-pressed="false" title="Page refresh: off" aria-label="Page refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20">
+          <path d="M20 6v5h-5"/><path d="M4 18v-5h5"/>
+          <path d="M18.5 9A7 7 0 0 0 6.2 6.8L4 9"/><path d="M5.5 15a7 7 0 0 0 12.3 2.2L20 15"/>
+        </svg>
+      </button>
     </div>
+    <!-- E-ink page-refresh settings (floats above the reader bar). -->
+    <div id="reader-refresh-panel" class="reader-refresh-panel hidden" role="dialog" aria-label="Page refresh">
+      <div class="reader-refresh-head">
+        <span>Page refresh</span>
+        <span id="reader-refresh-value" class="reader-refresh-value">Off</span>
+      </div>
+      <input id="reader-refresh-slider" class="reader-refresh-slider" type="range" min="0" max="25" step="1" value="0" aria-label="Refresh every N pages" />
+      <div class="reader-refresh-copy">Flash the screen black &amp; white after this many forward page turns to clear e-ink ghosting. 0 turns it off.</div>
+    </div>
+    <!-- Full-screen flash overlay driven by the page-refresh setting. -->
+    <div id="reader-flash" class="reader-flash hidden" aria-hidden="true"></div>
   </div>
 
   <script src="app.js"></script>
