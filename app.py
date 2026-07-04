@@ -15,6 +15,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -571,8 +572,25 @@ def safe_series_dir(name):
     return series
 
 
+# Chapter number embedded in a "Chapter 100.cbz" / "Chapter 100.5.cbz" filename.
+_CHAP_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)")
+
+
+def chapter_sort_key(path):
+    """Sort .cbz chapters by their numeric value, not lexicographically.
+
+    Filenames are zero-padded to 3 digits, so a plain string sort puts
+    "Chapter 1000" between "Chapter 100" and "Chapter 101". Extract the number
+    and sort on it; files without a number sort last (by name)."""
+    m = _CHAP_NUM_RE.search(path.stem)
+    return (0, float(m.group(1)), "") if m else (1, 0.0, path.name.lower())
+
+
 def chapter_files(series_dir):
-    return sorted(p for p in series_dir.iterdir() if p.suffix.lower() == ".cbz")
+    return sorted(
+        (p for p in series_dir.iterdir() if p.suffix.lower() == ".cbz"),
+        key=chapter_sort_key,
+    )
 
 
 @app.route("/api/library", methods=["GET"])
