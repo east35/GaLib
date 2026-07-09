@@ -556,6 +556,10 @@ input[type="url"], input[type="text"] {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Own all touch gestures so the browser doesn't pinch-zoom the page
+     out from under us. */
+  touch-action: none;
+  overflow: hidden;
 }
 #reader-img {
   max-width: 100%;
@@ -563,7 +567,10 @@ input[type="url"], input[type="text"] {
   display: block;
   user-select: none;
   -webkit-user-drag: none;
+  transform-origin: center center;
+  will-change: transform;
 }
+.reader.is-zoomed .hit { cursor: grab; }
 .hit {
   position: absolute;
   top: 0;
@@ -584,8 +591,13 @@ input[type="url"], input[type="text"] {
 }
 /* …and the tap zones run top→bottom: top = forward (was left), bottom = back. */
 .reader-stage.spread-active #reader-hit-left   { left: 0; right: 0; width: auto; top: 0; bottom: auto; height: 33%; }
-.reader-stage.spread-active #reader-hit-center { left: 0; right: 0; width: auto; top: 33%; bottom: auto; height: 34%; }
+.reader-stage.spread-active #reader-hit-center { left: 33%; right: auto; width: 34%; top: 33%; bottom: auto; height: 34%; }
 .reader-stage.spread-active #reader-hit-right  { left: 0; right: 0; width: auto; top: auto; bottom: 0; height: 33%; }
+/* Side strips only exist in spread mode — they fill the middle band's flanks
+   so the left edge advances and the right edge goes back, matching portrait. */
+#reader-hit-side-left, #reader-hit-side-right { display: none; }
+.reader-stage.spread-active #reader-hit-side-left  { display: block; left: 0; width: 33%; top: 33%; height: 34%; }
+.reader-stage.spread-active #reader-hit-side-right { display: block; right: 0; width: 33%; top: 33%; height: 34%; }
 .reader-bar {
   flex: 0 0 auto;
   padding: 16px 18px;
