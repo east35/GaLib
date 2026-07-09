@@ -50,6 +50,8 @@ const els = {
   hitLeft: $("#reader-hit-left"),
   hitCenter: $("#reader-hit-center"),
   hitRight: $("#reader-hit-right"),
+  hitSideLeft: $("#reader-hit-side-left"),
+  hitSideRight: $("#reader-hit-side-right"),
   transition: $("#reader-transition"),
   transitionLabel: document.querySelector("#reader-transition .rt-label"),
   transitionTitle: document.querySelector("#reader-transition .rt-title"),
@@ -763,6 +765,157 @@ function triggerReaderRefreshFlash() {
   }, 400);
 }
 
+// ---------- pinch-to-zoom ----------
+// A translate+scale (composed with spread's rotate) applied inline to
+// #reader-img. Pointer events on the stage drive it — two fingers pinch,
+// one finger pans while zoomed, and a double-tap toggles between 1× and 2.5×.
+const MAX_ZOOM = 5;
+let zoomState = { scale: 1, tx: 0, ty: 0 };
+const activePointers = new Map();
+let pinchStart = null;
+let panStart = null;
+let suppressNextClick = false;
+let clearSuppressTimer = null;
+let lastTapAt = 0;
+let lastTapPos = null;
+
+function isZoomed() { return zoomState.scale > 1.001; }
+
+function applyZoomTransform() {
+  const img = els.readerImg;
+  const spread = els.readerStage.classList.contains("spread-active");
+  const parts = [];
+  if (zoomState.tx || zoomState.ty) parts.push(`translate(${zoomState.tx}px, ${zoomState.ty}px)`);
+  if (zoomState.scale !== 1) parts.push(`scale(${zoomState.scale})`);
+  if (spread) parts.push("rotate(90deg)");
+  img.style.transform = parts.join(" ");
+  els.reader.classList.toggle("is-zoomed", isZoomed());
+}
+
+function resetZoom() {
+  zoomState = { scale: 1, tx: 0, ty: 0 };
+  applyZoomTransform();
+}
+
+function clampPan() {
+  const stage = els.readerStage.getBoundingClientRect();
+  const w = els.readerImg.offsetWidth * zoomState.scale;
+  const h = els.readerImg.offsetHeight * zoomState.scale;
+  const maxX = Math.max(0, (w - stage.width) / 2);
+  const maxY = Math.max(0, (h - stage.height) / 2);
+  zoomState.tx = Math.max(-maxX, Math.min(maxX, zoomState.tx));
+  zoomState.ty = Math.max(-maxY, Math.min(maxY, zoomState.ty));
+}
+
+function stageLocal(clientX, clientY) {
+  const r = els.readerStage.getBoundingClientRect();
+  return { x: clientX - (r.left + r.width / 2), y: clientY - (r.top + r.height / 2) };
+}
+
+function armSuppressClick() {
+  suppressNextClick = true;
+  clearTimeout(clearSuppressTimer);
+  // Clicks synthesized from touchend arrive within ~300ms; clear shortly after.
+  clearSuppressTimer = setTimeout(() => { suppressNextClick = false; }, 400);
+}
+
+function onStagePointerDown(e) {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  activePointers.set(e.pointerId, stageLocal(e.clientX, e.clientY));
+  try { els.readerStage.setPointerCapture(e.pointerId); } catch (_) {}
+  if (activePointers.size === 2) {
+    const [a, b] = [...activePointers.values()];
+    pinchStart = {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      scale: zoomState.scale,
+      tx: zoomState.tx,
+      ty: zoomState.ty,
+    };
+    panStart = null;
+    armSuppressClick();
+    e.preventDefault();
+  } else if (activePointers.size === 1 && isZoomed()) {
+    const p = [...activePointers.values()][0];
+    panStart = { x: p.x, y: p.y, tx: zoomState.tx, ty: zoomState.ty };
+  }
+}
+
+function onStagePointerMove(e) {
+  if (!activePointers.has(e.pointerId)) return;
+  activePointers.set(e.pointerId, stageLocal(e.clientX, e.clientY));
+  if (activePointers.size >= 2 && pinchStart) {
+    const [a, b] = [...activePointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    let s = pinchStart.scale * (d / pinchStart.dist);
+    s = Math.max(1, Math.min(MAX_ZOOM, s));
+    const ratio = s / pinchStart.scale;
+    zoomState.scale = s;
+    // Keep the content point under the initial midpoint anchored under the
+    // current midpoint (handles simultaneous pinch + pan).
+    zoomState.tx = m.x - ratio * (pinchStart.mid.x - pinchStart.tx);
+    zoomState.ty = m.y - ratio * (pinchStart.mid.y - pinchStart.ty);
+    clampPan();
+    applyZoomTransform();
+    armSuppressClick();
+    e.preventDefault();
+  } else if (activePointers.size === 1 && panStart && isZoomed()) {
+    const p = [...activePointers.values()][0];
+    zoomState.tx = panStart.tx + (p.x - panStart.x);
+    zoomState.ty = panStart.ty + (p.y - panStart.y);
+    clampPan();
+    applyZoomTransform();
+    armSuppressClick();
+    e.preventDefault();
+  }
+}
+
+function onStagePointerUp(e) {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) pinchStart = null;
+  if (activePointers.size < 1) panStart = null;
+  if (zoomState.scale <= 1.001) {
+    // Snap back cleanly if a pinch out-then-in ended below 1×.
+    resetZoom();
+  }
+}
+
+function onStageClickCapture(e) {
+  if (suppressNextClick) {
+    suppressNextClick = false;
+    clearTimeout(clearSuppressTimer);
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    return;
+  }
+  // While zoomed, single taps must not turn the page, and a double-tap
+  // exits the zoom cleanly. (We don't offer double-tap-to-zoom-in because
+  // it would race with the existing tap-to-turn-page gesture on every tap.)
+  if (!isZoomed()) return;
+  const now = Date.now();
+  const pos = stageLocal(e.clientX, e.clientY);
+  const isDouble =
+    lastTapAt && now - lastTapAt < 300 && lastTapPos &&
+    Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 40;
+  if (isDouble) {
+    resetZoom();
+    lastTapAt = 0;
+    lastTapPos = null;
+  } else {
+    lastTapAt = now;
+    lastTapPos = pos;
+  }
+  e.stopImmediatePropagation();
+  e.preventDefault();
+}
+
+els.readerStage.addEventListener("pointerdown", onStagePointerDown);
+els.readerStage.addEventListener("pointermove", onStagePointerMove);
+els.readerStage.addEventListener("pointerup", onStagePointerUp);
+els.readerStage.addEventListener("pointercancel", onStagePointerUp);
+els.readerStage.addEventListener("click", onStageClickCapture, true);
+
 // Rotate + size a page for spread mode, given the image's natural dimensions
 // (falling back to the live <img> when not supplied). A page is a "spread" when
 // it's wider than it is tall; sizing makes that landscape image fit the portrait
@@ -775,6 +928,7 @@ function applySpreadLayout(natW, natH) {
   if (!active) {
     img.style.width = "";
     img.style.height = "";
+    applyZoomTransform();
     return;
   }
   const sw = els.readerStage.clientWidth;
@@ -785,6 +939,7 @@ function applySpreadLayout(natW, natH) {
   const Hd = Math.min(sw, sh / ar);
   img.style.width = ar * Hd + "px";
   img.style.height = Hd + "px";
+  applyZoomTransform();
 }
 
 // Re-apply from the currently displayed image (resize / fullscreen / toggle).
@@ -820,6 +975,7 @@ async function showPage() {
   }
   if (token !== pageToken || !reader) return; // a newer turn superseded this one
 
+  resetZoom();
   applySpreadLayout(probe.naturalWidth, probe.naturalHeight);
   els.readerImg.src = url;
 
@@ -880,6 +1036,7 @@ function closeReaderUI() {
   // Flush any pending progress write before tearing the reader down.
   if (progressSaveTimer) { clearTimeout(progressSaveTimer); progressSaveTimer = null; }
   if (reader) saveProgress(reader.series, reader.chapter, { page: reader.index, pages: reader.pages });
+  resetZoom();
   els.reader.classList.add("hidden");
   els.readerImg.src = "";
   els.transition.classList.remove("show");
@@ -907,6 +1064,8 @@ window.addEventListener("popstate", closeReaderUI);
 els.hitLeft.addEventListener("click", nextPage);
 els.hitRight.addEventListener("click", prevPage);
 els.hitCenter.addEventListener("click", toggleFullscreen);
+els.hitSideLeft.addEventListener("click", nextPage);
+els.hitSideRight.addEventListener("click", prevPage);
 els.readerClose.addEventListener("click", closeReader);
 els.readerCrop.addEventListener("click", () => {
   cropEnabled = !cropEnabled;
@@ -918,6 +1077,7 @@ els.readerSpread.addEventListener("click", () => {
   spreadEnabled = !spreadEnabled;
   try { localStorage.setItem("manga-dl.spread", spreadEnabled ? "1" : "0"); } catch (_) {}
   updateSpreadSwitch();
+  resetZoom();
   updateSpreadLayout();
 });
 els.readerRefresh.addEventListener("click", toggleRefreshPanel);
