@@ -2,7 +2,7 @@
 // Network-first for the shell (so rebuilds are picked up), cache fallback when offline.
 // Cover art is cached separately so it's available offline.
 
-const CACHE = "manga-dl-v2";
+const CACHE = "manga-dl-v3";
 const COVER_CACHE = "manga-dl-covers-v1";
 const SHELL = [
   "/",

@@ -218,20 +218,134 @@ function finishJob() {
   els.cancel.classList.add("hidden");
 }
 
-// ---------- reading progress (server-synced) ----------
+// ---------- reading progress (server-synced, offline-durable) ----------
 
-// In-memory mirror of /api/progress, refreshed on load and updated optimistically.
+// In-memory mirror of the reading progress. It is written through to
+// localStorage on every change (so a reload or an offline session never loses a
+// position) and reconciled with the server — newest-wins per chapter — whenever
+// we can reach it. Chapters carry an `updated` epoch-seconds stamp; the server
+// sets its own on write, and offline edits stamp a local clock so the merge can
+// pick a winner.
 let progress = { series: {} };
 
-async function loadProgress() {
-  try {
-    const data = await api("/api/progress");
-    progress = data && data.series ? data : { series: {} };
-  } catch {
-    progress = { series: {} };
-  }
-  await migrateLocalReads();
+const PROGRESS_KEY = "manga-dl.progress";
+
+function nowTs() {
+  return Date.now() / 1000;
 }
+
+function loadLocalProgress() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "null");
+    if (raw && raw.series && typeof raw.series === "object") return raw;
+  } catch {}
+  return { series: {} };
+}
+
+function saveLocalProgress(p) {
+  try {
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(p));
+  } catch {}
+}
+
+// A chapter entry is worth pushing to the server only if it actually records
+// something (a page read into, or an explicit read mark) — never a bare stub.
+function chapterHasData(ch) {
+  return !!(ch && ((ch.page || 0) > 0 || ch.read || (ch.pages || 0) > 0));
+}
+
+function pushFields(ch) {
+  return { page: ch.page || 0, pages: ch.pages || 0, read: !!ch.read };
+}
+
+// Merge two progress maps chapter-by-chapter, newest `updated` wins. Returns the
+// merged map plus the list of chapters where the local copy is the winner and so
+// must be pushed to catch the server up.
+function mergeProgress(local, server) {
+  const merged = { series: {} };
+  const localNewer = [];
+  const names = new Set([
+    ...Object.keys(local.series || {}),
+    ...Object.keys(server.series || {}),
+  ]);
+  for (const name of names) {
+    const ls = local.series[name];
+    const ss = server.series[name];
+    if (!ss) {
+      merged.series[name] = ls;
+      for (const [file, ch] of Object.entries(ls.chapters || {})) {
+        if (chapterHasData(ch)) localNewer.push({ series: name, chapter: file, fields: pushFields(ch) });
+      }
+      continue;
+    }
+    if (!ls) {
+      merged.series[name] = ss;
+      continue;
+    }
+    const ms = { current: null, chapters: {}, updated: Math.max(ls.updated || 0, ss.updated || 0) };
+    const files = new Set([
+      ...Object.keys(ls.chapters || {}),
+      ...Object.keys(ss.chapters || {}),
+    ]);
+    for (const file of files) {
+      const lc = ls.chapters?.[file];
+      const sc = ss.chapters?.[file];
+      if (lc && (!sc || (lc.updated || 0) > (sc.updated || 0))) {
+        ms.chapters[file] = lc;
+        if (chapterHasData(lc)) localNewer.push({ series: name, chapter: file, fields: pushFields(lc) });
+      } else {
+        ms.chapters[file] = sc;
+      }
+    }
+    ms.current = (ls.updated || 0) > (ss.updated || 0)
+      ? (ls.current ?? ss.current ?? null)
+      : (ss.current ?? ls.current ?? null);
+    merged.series[name] = ms;
+  }
+  return { merged, localNewer };
+}
+
+async function pushLocalNewer(list) {
+  for (const { series, chapter, fields } of list) {
+    try {
+      const res = await api("/api/progress", {
+        method: "POST",
+        body: JSON.stringify({ series, chapter, ...fields }),
+      });
+      if (res && res.entry) progress.series[series] = res.entry;
+    } catch {
+      break; // still offline — leave the rest queued for next sync
+    }
+  }
+  saveLocalProgress(progress);
+}
+
+// Reconcile local + server. Always seeds `progress` from local first, so even a
+// failed fetch leaves us with the durable copy rather than a wiped map.
+async function loadProgress() {
+  const local = loadLocalProgress();
+  progress = local;
+  let server;
+  try {
+    server = await api("/api/progress");
+  } catch {
+    await migrateLocalReads();
+    return; // offline: keep the local copy intact
+  }
+  if (!server || !server.series) server = { series: {} };
+  const { merged, localNewer } = mergeProgress(local, server);
+  progress = merged;
+  saveLocalProgress(progress);
+  await migrateLocalReads();
+  await pushLocalNewer(localNewer);
+}
+
+// When connectivity returns, replay any progress the server hasn't heard about.
+let progressFlushTimer = null;
+window.addEventListener("online", () => {
+  clearTimeout(progressFlushTimer);
+  progressFlushTimer = setTimeout(() => { loadProgress(); }, 500);
+});
 
 // One-time: lift any read-marks left in this browser's localStorage up to the server.
 async function migrateLocalReads() {
@@ -283,7 +397,8 @@ function readCount(name) {
   return Object.values(s.chapters).filter((c) => c && c.read).length;
 }
 
-// Push (and locally mirror) a progress update for one chapter.
+// Update one chapter's progress: mirror it in memory, persist it locally *now*
+// (so it survives a reload or an offline stretch), then try to sync the server.
 async function saveProgress(name, file, fields) {
   const s = progress.series[name] || (progress.series[name] = { current: null, chapters: {} });
   if (!s.chapters) s.chapters = {};
@@ -292,26 +407,54 @@ async function saveProgress(name, file, fields) {
   if (fields.pages != null) c.pages = fields.pages;
   if (fields.read != null) c.read = fields.read;
   else if (c.pages && c.page >= c.pages - 1) c.read = true;
+  const ts = nowTs();
+  c.updated = ts;
   if (fields.page != null) s.current = file;
+  s.updated = ts;
+  saveLocalProgress(progress); // durable before the network is even attempted
   try {
     const res = await api("/api/progress", {
       method: "POST",
       body: JSON.stringify({ series: name, chapter: file, ...fields }),
     });
-    if (res && res.entry) progress.series[name] = res.entry;
-  } catch {}
+    if (res && res.entry) {
+      progress.series[name] = res.entry;
+      saveLocalProgress(progress);
+    }
+  } catch {
+    // Offline: the local copy already holds it; loadProgress() will push later.
+  }
 }
 
 // Reading a chapter implies the earlier ones are done: mark everything that
 // sorts before `chapterFile` as read (the current chapter is left alone until
 // finished normally). Server resolves the ordering and writes in one go.
-async function markReadThrough(name, chapterFile) {
+async function markReadThrough(name, chapterFile, chapterFiles) {
+  // Persist the catch-up marks locally first, using the ordered chapter-file
+  // list the caller already has, so read-through still records while offline.
+  if (Array.isArray(chapterFiles)) {
+    const cut = chapterFiles.indexOf(chapterFile);
+    if (cut > 0) {
+      const s = progress.series[name] || (progress.series[name] = { current: null, chapters: {} });
+      if (!s.chapters) s.chapters = {};
+      const ts = nowTs();
+      let changed = false;
+      for (const file of chapterFiles.slice(0, cut)) {
+        const c = s.chapters[file] || (s.chapters[file] = { page: 0, pages: 0, read: false });
+        if (!c.read) { c.read = true; c.updated = ts; changed = true; }
+      }
+      if (changed) { s.updated = ts; saveLocalProgress(progress); }
+    }
+  }
   try {
     const res = await api("/api/progress/read-through", {
       method: "POST",
       body: JSON.stringify({ series: name, chapter: chapterFile }),
     });
-    if (res && res.entry) progress.series[name] = res.entry;
+    if (res && res.entry) {
+      progress.series[name] = res.entry;
+      saveLocalProgress(progress);
+    }
   } catch {}
 }
 
@@ -543,6 +686,7 @@ els.chaptersReset.addEventListener("click", async () => {
       body: JSON.stringify({ series: chaptersSeries.name }),
     });
     delete progress.series[chaptersSeries.name];
+    saveLocalProgress(progress); // keep the durable copy in step with the reset
     openChapters(chaptersSeries); // re-render the list with marks cleared
     loadLibrary();                // drop it out of "Continue reading"
   } catch (e) {
@@ -598,7 +742,7 @@ async function openReader(series, chapters, chapIdx, startPage = 0) {
   };
   pageTurnsSinceRefresh = 0;
   updateReaderTitle();
-  markReadThrough(series.name, chapter.file); // catch up earlier chapters
+  markReadThrough(series.name, chapter.file, chapters.map((c) => c.file)); // catch up earlier chapters
   els.reader.classList.remove("hidden");
   els.reader.focus();
   document.body.classList.add("reader-open"); // lock the page behind it
@@ -675,7 +819,7 @@ async function switchChapter(newIdx, startAtEnd) {
   reader.index = startAtEnd ? Math.max(0, res.pages - 1) : 0;
   reader.pageEdge = startAtEnd ? "bottom" : "top";
   updateReaderTitle();
-  markReadThrough(reader.series, ch.file); // catch up earlier chapters
+  markReadThrough(reader.series, ch.file, reader.chapters.map((c) => c.file)); // catch up earlier chapters
   showChapterTransition(direction, ch);
   showPage();
 }
