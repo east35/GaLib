@@ -10,6 +10,9 @@ downloads/
 # Secrets / local env
 .env
 
+# Host-specific deploy overrides (reverse-proxy routing, domains)
+docker-compose.override.yml
+
 # Editor / harness local settings
 .claude/
 
