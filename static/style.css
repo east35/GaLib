@@ -598,6 +598,25 @@ input[type="url"], input[type="text"] {
 #reader-hit-side-left, #reader-hit-side-right { display: none; }
 .reader-stage.spread-active #reader-hit-side-left  { display: block; left: 0; width: 33%; top: 33%; height: 34%; }
 .reader-stage.spread-active #reader-hit-side-right { display: block; right: 0; width: 33%; top: 33%; height: 34%; }
+
+/* Full-width mode keeps the stage as the viewport and lets JS move through a
+   tall page one viewport at a time before turning to the next/previous page. */
+.reader-stage.full-width-active {
+  align-items: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.reader-stage.full-width-active::-webkit-scrollbar { display: none; }
+.reader-stage.full-width-active #reader-img {
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  flex: 0 0 auto;
+}
+/* Stage-level click handling keeps the tap zones fixed while the image scrolls. */
+.reader-stage.full-width-active .hit { pointer-events: none; }
 .reader-bar {
   flex: 0 0 auto;
   padding: 16px 18px;

@@ -41,6 +41,7 @@ const els = {
   readerClose: $("#reader-close"),
   readerCrop: $("#reader-crop"),
   readerSpread: $("#reader-spread"),
+  readerFullWidth: $("#reader-full-width"),
   readerRefresh: $("#reader-refresh"),
   readerRefreshPanel: $("#reader-refresh-panel"),
   readerRefreshSlider: $("#reader-refresh-slider"),
@@ -672,6 +673,7 @@ async function switchChapter(newIdx, startAtEnd) {
   reader.chapter = ch.file;
   reader.pages = res.pages;
   reader.index = startAtEnd ? Math.max(0, res.pages - 1) : 0;
+  reader.pageEdge = startAtEnd ? "bottom" : "top";
   updateReaderTitle();
   markReadThrough(reader.series, ch.file); // catch up earlier chapters
   showChapterTransition(direction, ch);
@@ -693,6 +695,21 @@ try { spreadEnabled = localStorage.getItem("manga-dl.spread") === "1"; } catch (
 
 function updateSpreadSwitch() {
   els.readerSpread.setAttribute("aria-pressed", spreadEnabled ? "true" : "false");
+}
+
+// Full-width mode scales portrait pages to the viewport width. Page-turn taps
+// first move through any vertically cropped content, one viewport at a time.
+// Reuse HonLib's column-constraint glyphs: framed lines for constrained pages,
+// edge-to-edge lines for full-width pages.
+const WIDTH_CONSTRAINED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M4 4v16M20 4v16" /><path d="M9 8h6M9 12h6M9 16h6" /></svg>';
+const WIDTH_FULL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M3 8h18M3 12h18M3 16h18" /></svg>';
+let fullWidthEnabled = false;
+try { fullWidthEnabled = localStorage.getItem("manga-dl.fullWidth") === "1"; } catch (_) {}
+
+function updateFullWidthSwitch() {
+  els.readerFullWidth.setAttribute("aria-pressed", fullWidthEnabled ? "true" : "false");
+  els.readerFullWidth.innerHTML = fullWidthEnabled ? WIDTH_FULL_SVG : WIDTH_CONSTRAINED_SVG;
+  els.readerStage.classList.toggle("full-width-active", fullWidthEnabled);
 }
 
 // E-ink page refresh: after N forward page turns, flash the screen solid
@@ -923,7 +940,7 @@ els.readerStage.addEventListener("click", onStageClickCapture, true);
 function applySpreadLayout(natW, natH) {
   const img = els.readerImg;
   if (!natW || !natH) { natW = img.naturalWidth; natH = img.naturalHeight; }
-  const active = spreadEnabled && natW > 0 && natW > natH;
+  const active = !fullWidthEnabled && spreadEnabled && natW > 0 && natW > natH;
   els.readerStage.classList.toggle("spread-active", active);
   if (!active) {
     img.style.width = "";
@@ -978,6 +995,19 @@ async function showPage() {
   resetZoom();
   applySpreadLayout(probe.naturalWidth, probe.naturalHeight);
   els.readerImg.src = url;
+  // New pages start at the top when reading forward and at the bottom when
+  // reading backward. Waiting a frame lets the new full-width image establish
+  // its scroll height before the edge is selected.
+  const edge = reader.pageEdge || "top";
+  reader.pageEdge = "top";
+  try { await els.readerImg.decode(); } catch (_) {}
+  if (token !== pageToken || !reader) return;
+  requestAnimationFrame(() => {
+    if (token !== pageToken || !reader) return;
+    els.readerStage.scrollTop = edge === "bottom"
+      ? Math.max(0, els.readerStage.scrollHeight - els.readerStage.clientHeight)
+      : 0;
+  });
 
   // preload the following page
   if (reader.index + 1 < reader.pages) {
@@ -1003,8 +1033,17 @@ function saveReaderProgress() {
 function nextPage() {
   if (!reader) return;
   closeRefreshPanel();
+  if (fullWidthEnabled) {
+    const stage = els.readerStage;
+    const bottom = Math.max(0, stage.scrollHeight - stage.clientHeight);
+    if (stage.scrollTop < bottom - 1) {
+      stage.scrollTo({ top: Math.min(bottom, stage.scrollTop + stage.clientHeight), behavior: "smooth" });
+      return;
+    }
+  }
   if (reader.index < reader.pages - 1) {
     reader.index++;
+    reader.pageEdge = "top";
     noteForwardTurn();
     showPage();
   } else if (reader.chapIdx + 1 < reader.chapters.length) {
@@ -1016,8 +1055,16 @@ function nextPage() {
 function prevPage() {
   if (!reader) return;
   closeRefreshPanel();
+  if (fullWidthEnabled && els.readerStage.scrollTop > 1) {
+    els.readerStage.scrollTo({
+      top: Math.max(0, els.readerStage.scrollTop - els.readerStage.clientHeight),
+      behavior: "smooth",
+    });
+    return;
+  }
   if (reader.index > 0) {
     reader.index--;
+    reader.pageEdge = "bottom";
     showPage();
   } else if (reader.chapIdx > 0) {
     switchChapter(reader.chapIdx - 1, true);
@@ -1066,6 +1113,14 @@ els.hitRight.addEventListener("click", prevPage);
 els.hitCenter.addEventListener("click", toggleFullscreen);
 els.hitSideLeft.addEventListener("click", nextPage);
 els.hitSideRight.addEventListener("click", prevPage);
+els.readerStage.addEventListener("click", (e) => {
+  if (!fullWidthEnabled || isZoomed()) return;
+  const rect = els.readerStage.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  if (x < rect.width / 3) nextPage();
+  else if (x > rect.width * 2 / 3) prevPage();
+  else toggleFullscreen();
+});
 els.readerClose.addEventListener("click", closeReader);
 els.readerCrop.addEventListener("click", () => {
   cropEnabled = !cropEnabled;
@@ -1080,6 +1135,14 @@ els.readerSpread.addEventListener("click", () => {
   resetZoom();
   updateSpreadLayout();
 });
+els.readerFullWidth.addEventListener("click", () => {
+  fullWidthEnabled = !fullWidthEnabled;
+  try { localStorage.setItem("manga-dl.fullWidth", fullWidthEnabled ? "1" : "0"); } catch (_) {}
+  updateFullWidthSwitch();
+  resetZoom();
+  updateSpreadLayout();
+  els.readerStage.scrollTop = 0;
+});
 els.readerRefresh.addEventListener("click", toggleRefreshPanel);
 els.readerRefreshSlider.addEventListener("input", () => {
   refreshEvery = clampRefresh(els.readerRefreshSlider.value);
@@ -1090,6 +1153,7 @@ els.readerRefreshSlider.addEventListener("input", () => {
 });
 updateCropSwitch();
 updateSpreadSwitch();
+updateFullWidthSwitch();
 updateRefreshButton();
 
 function toggleFullscreen() {
