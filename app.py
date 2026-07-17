@@ -32,6 +32,7 @@ from flask import (
     Flask, abort, jsonify, redirect, render_template_string, request,
     send_file, send_from_directory, session,
 )
+import web_bundle
 
 # Optional acquisition plugin (GaLib-Finder), mounted at finder/. Guard the
 # import and validate the client contract so the core stays source-agnostic and
@@ -104,6 +105,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=COOKIE_SECURE,
     PERMANENT_SESSION_LIFETIME=timedelta(days=90),
 )
+web_bundle.register_routes(app)
 
 
 def _credentials_ok(username, password):
