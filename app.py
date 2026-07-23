@@ -687,18 +687,9 @@ def read_details(series_dir):
 @app.route("/api/series/<name>/chapters")
 def list_chapters(name):
     series = safe_series_dir(name)
-    out = []
-    for p in chapter_files(series):
-        try:
-            with zipfile.ZipFile(p) as zf:
-                pages = sum(
-                    1 for n in zf.namelist()
-                    if not n.lower().endswith("comicinfo.xml")
-                    and not n.endswith("/")
-                )
-        except Exception:
-            pages = 0
-        out.append({"file": p.name, "pages": pages})
+    # Listing chapters should stay cheap even for very large series. Page
+    # counts are calculated only when the existing /pages route opens a chapter.
+    out = [{"file": p.name, "pages": None} for p in chapter_files(series)]
     d = read_details(series)
     details = {
         "title": d.get("title"),

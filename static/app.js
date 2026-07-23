@@ -530,7 +530,7 @@ function renderCard(s, kind) {
     const sp = seriesProgress(s.name);
     const cp = sp && sp.current ? chapterProgress(s.name, sp.current) : null;
     const read = readCount(s.name);
-    const niceName = sp && sp.current ? sp.current.replace(/\.cbz$/i, "") : "";
+    const niceName = sp && sp.current ? chapterDisplayName(sp.current) : "";
     const where = `pg ${((cp && cp.page) || 0) + 1}/${(cp && cp.pages) || "?"}`;
     let sub = `${s.chapter_count} chapter${s.chapter_count === 1 ? "" : "s"}`;
     if (read) sub += ` · ${read} read`;
@@ -576,6 +576,28 @@ function renderCard(s, kind) {
 // ---------- chapter list ----------
 
 let chaptersSeries = null;
+let chaptersRequestGeneration = 0;
+let seriesChapterPicker = null;
+let readerChapterPicker = null;
+const chapterDisplayName = ChapterPicker.displayName;
+
+function pickerAnchor(chapters, seriesName, currentFile) {
+  const current = chapters.findIndex((chapter) => chapter.file === currentFile);
+  if (current >= 0) {
+    const saved = chapterProgress(seriesName, chapters[current].file);
+    if (!saved || !saved.read) return current;
+  }
+  const nextUnread = chapters.findIndex((chapter, index) => {
+    const saved = chapterProgress(seriesName, chapter.file);
+    return (current < 0 || index > current) && (!saved || !saved.read);
+  });
+  return nextUnread >= 0 ? nextUnread : Math.max(current, 0);
+}
+
+function knownPages(chapter, saved) {
+  if (Number.isInteger(chapter.pages)) return chapter.pages;
+  return saved && Number.isInteger(saved.pages) ? saved.pages : null;
+}
 
 const STATUS_LABELS = { 1: "Ongoing", 2: "Completed", 3: "Licensed", 5: "Cancelled", 6: "Hiatus" };
 
@@ -610,6 +632,8 @@ function renderSeriesDetail(series, d, hasCover) {
 }
 
 async function openChapters(series) {
+  const requestGeneration = ++chaptersRequestGeneration;
+  if (seriesChapterPicker) seriesChapterPicker.clear();
   chaptersSeries = series;
   els.chaptersTitle.textContent = series.title;
   els.seriesDetail.innerHTML = "";
@@ -617,6 +641,7 @@ async function openChapters(series) {
   els.modal.classList.remove("hidden");
   try {
     const res = await api(`/api/series/${encodeURIComponent(series.name)}/chapters`);
+    if (requestGeneration !== chaptersRequestGeneration) return;
     renderSeriesDetail(series, res.details, res.has_cover);
     if (!res.chapters.length) {
       els.chaptersList.innerHTML = "<div class='lib-empty' style='padding:18px'>No chapters yet.</div>";
@@ -624,19 +649,25 @@ async function openChapters(series) {
     }
     const sp = seriesProgress(series.name);
     const currentFile = sp && sp.current;
-    els.chaptersList.innerHTML = "";
-    for (const [i, ch] of res.chapters.entries()) {
+    if (!seriesChapterPicker) {
+      seriesChapterPicker = ChapterPicker.create({
+        list: els.chaptersList,
+        scroller: els.chaptersList.parentElement,
+      });
+    }
+    seriesChapterPicker.reset(res.chapters, (ch) => {
       const row = document.createElement("div");
       row.className = "chap-item";
       const cp = chapterProgress(series.name, ch.file);
       if (cp && cp.read) row.classList.add("read");
       if (ch.file === currentFile) row.classList.add("current");
-      const niceName = ch.file.replace(/\.cbz$/i, "");
+      const niceName = chapterDisplayName(ch.file);
       let badge = "";
+      const pages = knownPages(ch, cp);
       if (ch.file === currentFile && cp && !cp.read) {
-        badge = `<span class="chap-badge">on pg ${cp.page + 1}/${ch.pages}</span>`;
+        badge = `<span class="chap-badge">on pg ${cp.page + 1}${pages === null ? "" : `/${pages}`}</span>`;
       } else if (cp && !cp.read && cp.page > 0) {
-        badge = `<span class="chap-badge faint">pg ${cp.page + 1}/${ch.pages}</span>`;
+        badge = `<span class="chap-badge faint">pg ${cp.page + 1}${pages === null ? "" : `/${pages}`}</span>`;
       }
       row.innerHTML = `
         <button class="chap-read" title="Toggle read" aria-label="Toggle read">
@@ -644,27 +675,32 @@ async function openChapters(series) {
         </button>
         <span class="chap-name">${escapeHtml(niceName)}</span>
         ${badge}
-        <span class="pages">${ch.pages} pages</span>
+        ${pages === null ? "" : `<span class="pages">${pages} page${pages === 1 ? "" : "s"}</span>`}
       `;
-      row.addEventListener("click", () => {
-        closeModal();
-        const start = cp && !cp.read ? (cp.page || 0) : 0;
-        openReader(series, res.chapters, i, start);
-      });
-      row.querySelector(".chap-read").addEventListener("click", (e) => {
-        e.stopPropagation();
+      return row;
+    }, (i, event, row) => {
+      const ch = res.chapters[i];
+      if (!ch) return;
+      if (event.target.closest(".chap-read")) {
         const nowRead = !row.classList.contains("read");
         saveProgress(series.name, ch.file, { read: nowRead });
         row.classList.toggle("read", nowRead);
-      });
-      els.chaptersList.appendChild(row);
-    }
+      } else {
+        closeModal();
+        const cp = chapterProgress(series.name, ch.file);
+        const start = cp && !cp.read ? (cp.page || 0) : 0;
+        openReader(series, res.chapters, i, start);
+      }
+    }, pickerAnchor(res.chapters, series.name, currentFile));
   } catch (e) {
+    if (requestGeneration !== chaptersRequestGeneration) return;
     els.chaptersList.innerHTML = `<div class='lib-empty' style='padding:18px'>Error: ${e.message}</div>`;
   }
 }
 
 function closeModal() {
+  chaptersRequestGeneration += 1;
+  if (seriesChapterPicker) seriesChapterPicker.clear();
   els.modal.classList.add("hidden");
 }
 
@@ -753,7 +789,7 @@ async function openReader(series, chapters, chapIdx, startPage = 0) {
 }
 
 function updateReaderTitle() {
-  const niceName = reader.chapter.replace(/\.cbz$/i, "");
+  const niceName = chapterDisplayName(reader.chapter);
   els.readerChapterLabel.textContent = niceName;
 }
 
@@ -762,26 +798,31 @@ function updateReaderTitle() {
 function openChapterPicker() {
   if (!reader) return;
   closeRefreshPanel();
-  const cur = reader.chapIdx;
-  els.readerChapterList.innerHTML = "";
-  reader.chapters.forEach((ch, i) => {
-    const item = document.createElement("div");
-    item.className = "rcp-item" + (i === cur ? " current" : "");
-    item.textContent = ch.file.replace(/\.cbz$/i, "");
-    item.addEventListener("click", () => {
-      closeChapterPicker();
-      // Always start the chosen chapter at page 0 (lets you restart a chapter).
-      if (i !== reader.chapIdx) switchChapter(i, false);
+  const pickerReader = reader;
+  if (!readerChapterPicker) {
+    readerChapterPicker = ChapterPicker.create({
+      list: els.readerChapterList,
+      scroller: els.readerChapterList,
     });
-    els.readerChapterList.appendChild(item);
-  });
+  }
   els.readerChapterPicker.classList.add("open");
-  // Scroll the current chapter into view.
-  const curEl = els.readerChapterList.querySelector(".current");
-  if (curEl) curEl.scrollIntoView({ block: "center" });
+  readerChapterPicker.reset(pickerReader.chapters, (ch, i) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "rcp-item" + (i === pickerReader.chapIdx ? " current" : "");
+    item.textContent = chapterDisplayName(ch.file);
+    return item;
+  }, (i) => {
+    if (reader !== pickerReader) return;
+    const previous = reader.chapIdx;
+    closeChapterPicker();
+    // Always start the chosen chapter at page 0 (lets you restart a chapter).
+    if (i !== previous) switchChapter(i, false);
+  }, pickerReader.chapIdx);
 }
 
 function closeChapterPicker() {
+  if (readerChapterPicker) readerChapterPicker.clear();
   els.readerChapterPicker.classList.remove("open");
 }
 
@@ -791,7 +832,7 @@ els.readerChapterPickerBackdrop.addEventListener("click", closeChapterPicker);
 let transitionTimer = null;
 
 function showChapterTransition(direction, ch) {
-  const niceName = ch.file.replace(/\.cbz$/i, "");
+  const niceName = chapterDisplayName(ch.file);
   els.transitionLabel.textContent =
     direction === "next" ? "Next chapter" : "Previous chapter";
   els.transitionTitle.textContent = niceName;
