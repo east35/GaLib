@@ -442,6 +442,17 @@ input[type="url"], input[type="text"] {
 .chapters-list {
   padding: 0;
 }
+.chapter-loader {
+  padding: 14px 18px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.reader-chapter-picker .chapter-loader {
+  color: #aaa;
+  border-bottom: 1px solid #333;
+}
 
 /* ---------- series detail header (chapter view) ---------- */
 .series-detail {
@@ -784,14 +795,21 @@ input[type="url"], input[type="text"] {
   flex: 1;
 }
 .rcp-item {
+  display: block;
+  width: 100%;
   padding: 13px 18px;
   font-size: 15px;
+  font-family: inherit;
+  text-align: left;
   color: #fff;
+  background: transparent;
+  border: 0;
   cursor: pointer;
   border-bottom: 1px solid #333;
 }
 .rcp-item:last-child { border-bottom: none; }
 .rcp-item:active { background: #222; }
+.rcp-item:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
 .rcp-item.current {
   background: #fff;
   color: #000;
