@@ -612,14 +612,14 @@ input[type="url"], input[type="text"] {
 
 /* Full-width mode keeps the stage as the viewport and lets JS move through a
    tall page one viewport at a time before turning to the next/previous page. */
-.reader-stage.full-width-active {
+.reader-stage.full-width-active:not(.spread-active) {
   align-items: flex-start;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
 }
-.reader-stage.full-width-active::-webkit-scrollbar { display: none; }
-.reader-stage.full-width-active #reader-img {
+.reader-stage.full-width-active:not(.spread-active)::-webkit-scrollbar { display: none; }
+.reader-stage.full-width-active:not(.spread-active) #reader-img {
   width: 100%;
   height: auto;
   max-width: none;
@@ -627,7 +627,7 @@ input[type="url"], input[type="text"] {
   flex: 0 0 auto;
 }
 /* Stage-level click handling keeps the tap zones fixed while the image scrolls. */
-.reader-stage.full-width-active .hit { pointer-events: none; }
+.reader-stage.full-width-active:not(.spread-active) .hit { pointer-events: none; }
 .reader-bar {
   flex: 0 0 auto;
   padding: 16px 18px;
