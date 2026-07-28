@@ -1125,7 +1125,10 @@ els.readerStage.addEventListener("click", onStageClickCapture, true);
 function applySpreadLayout(natW, natH) {
   const img = els.readerImg;
   if (!natW || !natH) { natW = img.naturalWidth; natH = img.naturalHeight; }
-  const active = !fullWidthEnabled && spreadEnabled && natW > 0 && natW > natH;
+  // A landscape spread takes precedence over full-width's portrait scrolling.
+  // The full-width preference remains enabled and resumes on the next portrait
+  // page; only the current page's layout changes.
+  const active = spreadEnabled && natW > 0 && natW > natH;
   els.readerStage.classList.toggle("spread-active", active);
   if (!active) {
     img.style.width = "";
@@ -1218,7 +1221,7 @@ function saveReaderProgress() {
 function nextPage() {
   if (!reader) return;
   closeRefreshPanel();
-  if (fullWidthEnabled) {
+  if (fullWidthEnabled && !els.readerStage.classList.contains("spread-active")) {
     const stage = els.readerStage;
     const bottom = Math.max(0, stage.scrollHeight - stage.clientHeight);
     if (stage.scrollTop < bottom - 1) {
@@ -1240,7 +1243,11 @@ function nextPage() {
 function prevPage() {
   if (!reader) return;
   closeRefreshPanel();
-  if (fullWidthEnabled && els.readerStage.scrollTop > 1) {
+  if (
+    fullWidthEnabled &&
+    !els.readerStage.classList.contains("spread-active") &&
+    els.readerStage.scrollTop > 1
+  ) {
     els.readerStage.scrollTo({
       top: Math.max(0, els.readerStage.scrollTop - els.readerStage.clientHeight),
       behavior: "smooth",
@@ -1299,7 +1306,11 @@ els.hitCenter.addEventListener("click", toggleFullscreen);
 els.hitSideLeft.addEventListener("click", nextPage);
 els.hitSideRight.addEventListener("click", prevPage);
 els.readerStage.addEventListener("click", (e) => {
-  if (!fullWidthEnabled || isZoomed()) return;
+  if (
+    !fullWidthEnabled ||
+    els.readerStage.classList.contains("spread-active") ||
+    isZoomed()
+  ) return;
   const rect = els.readerStage.getBoundingClientRect();
   const x = e.clientX - rect.left;
   if (x < rect.width / 3) nextPage();
