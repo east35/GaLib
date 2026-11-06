@@ -979,8 +979,6 @@ let zoomState = { scale: 1, tx: 0, ty: 0 };
 const activePointers = new Map();
 let pinchStart = null;
 let panStart = null;
-let suppressNextClick = false;
-let clearSuppressTimer = null;
 let lastTapAt = 0;
 let lastTapPos = null;
 
@@ -1017,17 +1015,21 @@ function stageLocal(clientX, clientY) {
   return { x: clientX - (r.left + r.width / 2), y: clientY - (r.top + r.height / 2) };
 }
 
-function armSuppressClick() {
-  suppressNextClick = true;
-  clearTimeout(clearSuppressTimer);
-  // Clicks synthesized from touchend arrive within ~300ms; clear shortly after.
-  clearSuppressTimer = setTimeout(() => { suppressNextClick = false; }, 400);
-}
+// Taps are detected from pointerdown/up ourselves (HonLib's approach), not from
+// `click`: iOS Safari drops the synthetic click after setPointerCapture, and
+// e-ink WebViews drop it when a finger drifts a pixel. A tap is one finger,
+// short, and near-stationary.
+const TAP_SLOP_PX = 12;
+const TAP_MAX_MS = 500;
+let tapStart = null;
 
 function onStagePointerDown(e) {
   if (e.pointerType === "mouse" && e.button !== 0) return;
   activePointers.set(e.pointerId, stageLocal(e.clientX, e.clientY));
   try { els.readerStage.setPointerCapture(e.pointerId); } catch (_) {}
+  tapStart = activePointers.size === 1 && e.isPrimary !== false
+    ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() }
+    : null; // a second finger makes it a pinch, never a tap
   if (activePointers.size === 2) {
     const [a, b] = [...activePointers.values()];
     pinchStart = {
@@ -1038,7 +1040,6 @@ function onStagePointerDown(e) {
       ty: zoomState.ty,
     };
     panStart = null;
-    armSuppressClick();
     e.preventDefault();
   } else if (activePointers.size === 1 && isZoomed()) {
     const p = [...activePointers.values()][0];
@@ -1049,6 +1050,10 @@ function onStagePointerDown(e) {
 function onStagePointerMove(e) {
   if (!activePointers.has(e.pointerId)) return;
   activePointers.set(e.pointerId, stageLocal(e.clientX, e.clientY));
+  if (tapStart && tapStart.id === e.pointerId &&
+      (Math.abs(e.clientX - tapStart.x) > TAP_SLOP_PX || Math.abs(e.clientY - tapStart.y) > TAP_SLOP_PX)) {
+    tapStart = null;
+  }
   if (activePointers.size >= 2 && pinchStart) {
     const [a, b] = [...activePointers.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -1063,7 +1068,6 @@ function onStagePointerMove(e) {
     zoomState.ty = m.y - ratio * (pinchStart.mid.y - pinchStart.ty);
     clampPan();
     applyZoomTransform();
-    armSuppressClick();
     e.preventDefault();
   } else if (activePointers.size === 1 && panStart && isZoomed()) {
     const p = [...activePointers.values()][0];
@@ -1071,12 +1075,14 @@ function onStagePointerMove(e) {
     zoomState.ty = panStart.ty + (p.y - panStart.y);
     clampPan();
     applyZoomTransform();
-    armSuppressClick();
     e.preventDefault();
   }
 }
 
 function onStagePointerUp(e) {
+  const tap = e.type === "pointerup" && tapStart && tapStart.id === e.pointerId &&
+    activePointers.size === 1 && Date.now() - tapStart.t <= TAP_MAX_MS;
+  tapStart = null;
   activePointers.delete(e.pointerId);
   if (activePointers.size < 2) pinchStart = null;
   if (activePointers.size < 1) panStart = null;
@@ -1084,30 +1090,25 @@ function onStagePointerUp(e) {
     // Snap back cleanly if a pinch out-then-in ended below 1×.
     resetZoom();
   }
+  if (tap) onStageTap(e.clientX, e.clientY);
 }
 
-function onStageClickCapture(e) {
-  if (suppressNextClick) {
-    suppressNextClick = false;
-    clearTimeout(clearSuppressTimer);
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    return;
-  }
+function onStageTap(clientX, clientY) {
   // HonLib pattern: while the menu is up, the first tap on the page puts it
   // away instead of turning, so dismissing never also flips the page.
   if (!els.reader.classList.contains("chrome-hidden")) {
     hideReaderChrome();
-    e.stopImmediatePropagation();
-    e.preventDefault();
     return;
   }
   // While zoomed, single taps must not turn the page, and a double-tap
   // exits the zoom cleanly. (We don't offer double-tap-to-zoom-in because
   // it would race with the existing tap-to-turn-page gesture on every tap.)
-  if (!isZoomed()) return;
+  if (!isZoomed()) {
+    turnAtStagePoint(clientX, clientY);
+    return;
+  }
   const now = Date.now();
-  const pos = stageLocal(e.clientX, e.clientY);
+  const pos = stageLocal(clientX, clientY);
   const isDouble =
     lastTapAt && now - lastTapAt < 300 && lastTapPos &&
     Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 40;
@@ -1119,15 +1120,29 @@ function onStageClickCapture(e) {
     lastTapAt = now;
     lastTapPos = pos;
   }
-  e.stopImmediatePropagation();
-  e.preventDefault();
+}
+
+// Page zones, decided by where the tap landed on the stage (same layout the
+// .hit overlays draw). RTL: the LEFT side advances, the RIGHT side goes back.
+// Spread mode rotates them: top band forward, bottom band back, and the middle
+// band's left/right flanks keep the portrait meaning.
+function turnAtStagePoint(clientX, clientY) {
+  const r = els.readerStage.getBoundingClientRect();
+  const fx = (clientX - r.left) / r.width;
+  const fy = (clientY - r.top) / r.height;
+  if (els.readerStage.classList.contains("spread-active")) {
+    if (fy < 0.33) return nextPage();
+    if (fy > 0.67) return prevPage();
+  }
+  if (fx < 0.33) nextPage();
+  else if (fx > 0.67) prevPage();
+  else toggleFullscreen();
 }
 
 els.readerStage.addEventListener("pointerdown", onStagePointerDown);
 els.readerStage.addEventListener("pointermove", onStagePointerMove);
 els.readerStage.addEventListener("pointerup", onStagePointerUp);
 els.readerStage.addEventListener("pointercancel", onStagePointerUp);
-els.readerStage.addEventListener("click", onStageClickCapture, true);
 
 // Rotate + size a page for spread mode, given the image's natural dimensions
 // (falling back to the live <img> when not supplied). A page is a "spread" when
@@ -1324,28 +1339,32 @@ function hideReaderChrome() { setReaderChrome(false); }
 function toggleReaderChrome() {
   setReaderChrome(els.reader.classList.contains("chrome-hidden"));
 }
+// Edge-strip taps, detected from pointerdown/up like the page taps. The
+// touchend preventDefault cancels the browser's follow-up synthetic click:
+// once the strip has acted, the spot under the finger is a bar button (menu
+// shown) or the library (book closed), and a ghost click there would hit it.
+function onEdgeTap(el, handler) {
+  let start = null;
+  el.addEventListener("pointerdown", (e) => {
+    start = e.isPrimary === false ? null : { x: e.clientX, y: e.clientY, t: Date.now() };
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (start && (Math.abs(e.clientX - start.x) > TAP_SLOP_PX || Math.abs(e.clientY - start.y) > TAP_SLOP_PX)) start = null;
+  });
+  el.addEventListener("pointercancel", () => { start = null; });
+  el.addEventListener("pointerup", () => {
+    const ok = start && Date.now() - start.t <= TAP_MAX_MS;
+    start = null;
+    if (ok) handler();
+  });
+  el.addEventListener("touchend", (e) => e.preventDefault(), { passive: false });
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handler(); }
+  });
+}
 // Top edge closes the book; bottom edge toggles the menu (HonLib layout).
-els.hitBack.addEventListener("click", closeReader);
-els.hitMenu.addEventListener("click", toggleReaderChrome);
-
-// RTL: clicking the LEFT side advances forward (toward next page); RIGHT side goes back.
-els.hitLeft.addEventListener("click", nextPage);
-els.hitRight.addEventListener("click", prevPage);
-els.hitCenter.addEventListener("click", toggleFullscreen);
-els.hitSideLeft.addEventListener("click", nextPage);
-els.hitSideRight.addEventListener("click", prevPage);
-els.readerStage.addEventListener("click", (e) => {
-  if (
-    !fullWidthEnabled ||
-    els.readerStage.classList.contains("spread-active") ||
-    isZoomed()
-  ) return;
-  const rect = els.readerStage.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  if (x < rect.width / 3) nextPage();
-  else if (x > rect.width * 2 / 3) prevPage();
-  else toggleFullscreen();
-});
+onEdgeTap(els.hitBack, closeReader);
+onEdgeTap(els.hitMenu, toggleReaderChrome);
 els.readerClose.addEventListener("click", closeReader);
 els.readerCrop.addEventListener("click", () => {
   cropEnabled = !cropEnabled;
