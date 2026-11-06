@@ -640,7 +640,25 @@ input[type="url"], input[type="text"] {
   color: #fff;
   font-size: 14px;
 }
-.reader.is-fullscreen .reader-bar { display: none; }
+.reader.chrome-hidden .reader-bar { display: none; }
+
+/* HonLib-style edge strips (above the page zones, below the picker/panels).
+   Top closes the book; bottom toggles the bar. While the bar is up it owns the
+   bottom edge, and a tap on the page puts it away instead. */
+.hit-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hit-bar.back { top: 0; height: 64px; }
+.hit-bar.menu { bottom: 0; height: 56px; }
+.reader:not(.chrome-hidden) .hit-bar.menu { display: none; }
 
 /* Filled (inverted) buttons — solid on the reader's black bar. */
 .reader-bar .btn {
@@ -694,7 +712,7 @@ input[type="url"], input[type="text"] {
   padding: 14px 16px;
 }
 .reader-refresh-panel.hidden { display: none !important; }
-.reader.is-fullscreen .reader-refresh-panel { display: none; }
+.reader.chrome-hidden .reader-refresh-panel { display: none; }
 .reader-refresh-head {
   display: flex;
   align-items: center;
@@ -816,4 +834,4 @@ input[type="url"], input[type="text"] {
   font-weight: 700;
 }
 
-.reader.is-fullscreen .reader-chapter-picker { display: none; }
+.reader.chrome-hidden .reader-chapter-picker { display: none; }
