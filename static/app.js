@@ -783,6 +783,7 @@ async function openReader(series, chapters, chapIdx, startPage = 0) {
   markReadThrough(series.name, chapter.file, chapters.map((c) => c.file)); // catch up earlier chapters
   els.reader.classList.remove("hidden");
   els.reader.classList.remove("chrome-hidden"); // open with the menu up, like HonLib
+  positionMenuStrip();
   els.reader.focus();
   document.body.classList.add("reader-open"); // lock the page behind it
   // Push a history entry so the device/browser Back button closes the reader
@@ -1176,7 +1177,7 @@ function applySpreadLayout(natW, natH) {
 // Re-apply from the currently displayed image (resize / fullscreen / toggle).
 function updateSpreadLayout() { applySpreadLayout(); }
 
-window.addEventListener("resize", updateSpreadLayout);
+window.addEventListener("resize", () => { updateSpreadLayout(); positionMenuStrip(); });
 
 function pageUrl(idx) {
   const u = `/api/series/${encodeURIComponent(reader.series)}/chapters/${encodeURIComponent(reader.chapter)}/page/${idx}`;
@@ -1327,8 +1328,21 @@ window.addEventListener("popstate", closeReaderUI);
 
 // Reading menu (the bar). Only the bottom edge strip toggles it; fullscreen is
 // independent of it. The stage resizes when the bar shows/hides, so re-fit.
+// The bottom strip sits at the screen edge when the bar is hidden, and in the
+// same-size gap directly above the bar when it's shown, so the tap that opened
+// the bar is also the tap that closes it.
+const MENU_STRIP_PX = 56; // keep in sync with .hit-bar.menu height
+function positionMenuStrip() {
+  const shown = !els.reader.classList.contains("chrome-hidden");
+  const barH = shown ? els.readerBar.offsetHeight : 0;
+  els.hitMenu.style.bottom = `${barH}px`;
+  // The refresh panel floats above the strip, never over it, so the close gap
+  // stays tappable while the panel is open.
+  if (shown) els.readerRefreshPanel.style.bottom = `${barH + MENU_STRIP_PX}px`;
+}
 function setReaderChrome(visible) {
   els.reader.classList.toggle("chrome-hidden", !visible);
+  positionMenuStrip();
   if (!visible) {
     closeRefreshPanel();
     closeChapterPicker();

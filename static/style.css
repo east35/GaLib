@@ -643,8 +643,8 @@ input[type="url"], input[type="text"] {
 .reader.chrome-hidden .reader-bar { display: none; }
 
 /* HonLib-style edge strips (above the page zones, below the picker/panels).
-   Top closes the book; bottom toggles the bar. While the bar is up it owns the
-   bottom edge, and a tap on the page puts it away instead. */
+   Top closes the book; bottom toggles the bar. While the bar is up, the bottom
+   strip sits in the same-size gap right above it (JS sets its `bottom`). */
 .hit-bar {
   position: absolute;
   left: 0;
@@ -659,7 +659,6 @@ input[type="url"], input[type="text"] {
 }
 .hit-bar.back { top: 0; height: 64px; }
 .hit-bar.menu { bottom: 0; height: 56px; }
-.reader:not(.chrome-hidden) .hit-bar.menu { display: none; }
 
 /* Filled (inverted) buttons — solid on the reader's black bar. */
 .reader-bar .btn {
