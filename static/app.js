@@ -53,6 +53,8 @@ const els = {
   hitRight: $("#reader-hit-right"),
   hitSideLeft: $("#reader-hit-side-left"),
   hitSideRight: $("#reader-hit-side-right"),
+  hitBack: $("#reader-hit-back"),
+  hitMenu: $("#reader-hit-menu"),
   transition: $("#reader-transition"),
   transitionLabel: document.querySelector("#reader-transition .rt-label"),
   transitionTitle: document.querySelector("#reader-transition .rt-title"),
@@ -780,6 +782,7 @@ async function openReader(series, chapters, chapIdx, startPage = 0) {
   updateReaderTitle();
   markReadThrough(series.name, chapter.file, chapters.map((c) => c.file)); // catch up earlier chapters
   els.reader.classList.remove("hidden");
+  els.reader.classList.remove("chrome-hidden"); // open with the menu up, like HonLib
   els.reader.focus();
   document.body.classList.add("reader-open"); // lock the page behind it
   // Push a history entry so the device/browser Back button closes the reader
@@ -1091,6 +1094,14 @@ function onStageClickCapture(e) {
     e.preventDefault();
     return;
   }
+  // HonLib pattern: while the menu is up, the first tap on the page puts it
+  // away instead of turning, so dismissing never also flips the page.
+  if (!els.reader.classList.contains("chrome-hidden")) {
+    hideReaderChrome();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    return;
+  }
   // While zoomed, single taps must not turn the page, and a double-tap
   // exits the zoom cleanly. (We don't offer double-tap-to-zoom-in because
   // it would race with the existing tap-to-turn-page gesture on every tap.)
@@ -1298,6 +1309,24 @@ function closeReader() {
 
 // Back button (or our own history.back above) closes the reader, not the app.
 window.addEventListener("popstate", closeReaderUI);
+
+// Reading menu (the bar). Only the bottom edge strip toggles it; fullscreen is
+// independent of it. The stage resizes when the bar shows/hides, so re-fit.
+function setReaderChrome(visible) {
+  els.reader.classList.toggle("chrome-hidden", !visible);
+  if (!visible) {
+    closeRefreshPanel();
+    closeChapterPicker();
+  }
+  updateSpreadLayout();
+}
+function hideReaderChrome() { setReaderChrome(false); }
+function toggleReaderChrome() {
+  setReaderChrome(els.reader.classList.contains("chrome-hidden"));
+}
+// Top edge closes the book; bottom edge toggles the menu (HonLib layout).
+els.hitBack.addEventListener("click", closeReader);
+els.hitMenu.addEventListener("click", toggleReaderChrome);
 
 // RTL: clicking the LEFT side advances forward (toward next page); RIGHT side goes back.
 els.hitLeft.addEventListener("click", nextPage);
