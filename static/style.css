@@ -654,6 +654,7 @@ input[type="url"], input[type="text"] {
   background: transparent;
   border: 0;
   cursor: pointer;
+  touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 .hit-bar.back { top: 0; height: 64px; }
